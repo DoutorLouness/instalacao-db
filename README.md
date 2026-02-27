@@ -25,4 +25,4 @@ Cansado de gerenciar MySQL pelo terminal? Este script configura uma stack comple
 Não precisa baixar nada manualmente. Basta copiar o comando abaixo, colar no terminal da sua VPS e seguir as instruções na tela:
 
 ```bash
-bash <(curl -s [https://raw.githubusercontent.com/DoutorLouness/instalacao-db/refs/heads/main/install.sh](https://raw.githubusercontent.com/DoutorLouness/instalacao-db/refs/heads/main/install.sh))
+bash <(curl -s [https://raw.githubusercontent.com/DoutorLouness/instalacao-db/refs/heads/main/install.sh]
