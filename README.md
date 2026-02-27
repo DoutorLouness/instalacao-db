@@ -1,26 +1,28 @@
-# 🚀 Astral Cloud - Scripts de Automação para VPS
+# 🚀 Astral Cloud - VPS Automation Scripts
 
-Bem-vindo ao repositório oficial de scripts da **Astral Cloud**. Aqui você encontra ferramentas desenvolvidas para facilitar a gestão da sua VPS, focando em automação, performance e facilidade de uso para todos os níveis de conhecimento.
+Bem-vindo ao repositório oficial de automação da **Astral Cloud**. Desenvolvemos estas ferramentas para transformar sua VPS em um ambiente profissional com apenas um comando. 
 
----
-
-## 🛠️ Instalador de Banco de Dados & phpMyAdmin
-
-Este script automatiza 100% da configuração de um ambiente de banco de dados profissional na sua VPS. Ideal para quem precisa de um painel visual para gerenciar dados de servidores de jogos (Minecraft, FiveM), sites ou bots.
-
-### ✨ O que o script faz:
-* **Detecção Inteligente de Portas:** Identifica automaticamente portas livres (80, 81, 82...) para evitar conflitos.
-* **Stack Completa:** Instala Nginx, MariaDB e PHP-FPM de forma silenciosa.
-* **Acesso Externo Habilitado:** Configura o banco de dados para aceitar conexões remotas (`%`), permitindo conexão entre diferentes Nodes.
-* **SSL Automático:** Gera certificado HTTPS via Certbot (Let's Encrypt) com um clique.
-* **Otimização de Upload:** Configura o PHP para suportar uploads de bancos de dados de até **512MB**.
-* **Compatibilidade:** Suporte total para Ubuntu 20.04+ e Debian 11+.
+> **Foco:** Performance, Segurança e simplicidade para usuários de todos os níveis.
 
 ---
 
-## 🚀 Como usar
+## 🗄️ Instalador de Banco de Dados & phpMyAdmin
 
-Para rodar o instalador na sua VPS, basta copiar e colar o comando abaixo no seu terminal:
+Cansado de gerenciar MySQL pelo terminal? Este script configura uma stack completa de banco de dados com painel visual, otimizada para servidores de jogos (Minecraft, FiveM), sites e aplicações.
+
+### ✨ Diferenciais do Script
+* **🚀 Instalação Instantânea:** Nginx + MariaDB + PHP-FPM configurados em menos de 2 minutos.
+* **🔌 Porta Inteligente:** O script detecta se a porta 80 está em uso e aloca automaticamente a próxima disponível (81, 82...).
+* **🌍 Conexão Remota (%):** Bancos de dados configurados para aceitar conexões de qualquer Node ou servidor externo.
+* **🔐 SSL One-Click:** Integração nativa com Certbot para gerar HTTPS no seu domínio.
+* **🐘 PHP Otimizado:** Limite de upload aumentado para **512MB** (importação de bancos grandes sem erro).
+* **🐧 Ampla Compatibilidade:** Testado e aprovado em Ubuntu 20.04 até 24.04 e Debian 11 até 13.
+
+---
+
+## ⚡ Como Instalar
+
+Não precisa baixar nada manualmente. Basta copiar o comando abaixo, colar no terminal da sua VPS e seguir as instruções na tela:
 
 ```bash
-bash <(curl -s [https://raw.githubusercontent.com/SEU_USUARIO/NOME_DO_REPO/main/db.sh](https://raw.githubusercontent.com/SEU_USUARIO/NOME_DO_REPO/main/db.sh))
+bash <(curl -s [https://raw.githubusercontent.com/DoutorLouness/instalacao-db/refs/heads/main/install.sh](https://raw.githubusercontent.com/DoutorLouness/instalacao-db/refs/heads/main/install.sh))
