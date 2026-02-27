@@ -51,11 +51,34 @@ fi
 
 echo -e "\n${GREEN}Iniciando a instalação mágica... Sente-se e relaxe! ☕${NC}\n"
 
-# 3. Preparação do Sistema (Modo 100% Silencioso)
+# 3. Otimização de Mirrors (Brasil)
+echo -e "[+] Otimizando repositórios do APT (Mirrors BR)..."
+source /etc/os-release
+
+if [ "$ID" == "ubuntu" ]; then
+    # Ubuntu 20.04 e 22.04 (Formato tradicional)
+    if [ -f /etc/apt/sources.list ]; then
+        sed -i -E 's|http://([a-z]{2}\.)?archive\.ubuntu\.com/ubuntu/?|http://br.archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list
+    fi
+    # Ubuntu 24.04+ (Novo formato DEB822)
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+        sed -i -E 's|URIs: http://([a-z]{2}\.)?archive\.ubuntu\.com/ubuntu/?|URIs: http://br.archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
+    fi
+elif [ "$ID" == "debian" ]; then
+    # Debian 11/12/13
+    if [ -f /etc/apt/sources.list ]; then
+        sed -i -E 's|http://([a-z]{2}\.)?deb\.debian\.org/debian/?|http://ftp.br.debian.org/debian/|g' /etc/apt/sources.list
+    fi
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then
+        sed -i -E 's|URIs: http://([a-z]{2}\.)?deb\.debian\.org/debian/?|URIs: http://ftp.br.debian.org/debian/|g' /etc/apt/sources.list.d/debian.sources
+    fi
+fi
+
+# 4. Preparação do Sistema (Modo 100% Silencioso)
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
-# 4. Detecção de Porta Livre (Usando 'ss' que é nativo do Linux, mais seguro que lsof)
+# 5. Detecção de Porta Livre (Usando 'ss')
 check_port() {
   local port=$1
   while ss -tuln | grep -q ":$port " ; do
@@ -66,27 +89,22 @@ check_port() {
 FINAL_PORT=$(check_port 80)
 echo -e "[+] Porta selecionada para o Web Server: $FINAL_PORT"
 
-# 5. Instalação de Pacotes Essenciais
+# 6. Instalação de Pacotes Essenciais
 echo -e "[+] Instalando Nginx, MariaDB, PHP e Certbot..."
 apt-get install -y -qq mariadb-server nginx php-fpm php-mysql php-mbstring curl certbot python3-certbot-nginx > /dev/null
 
-# Garante que os serviços iniciem com o boot da máquina
 systemctl enable mariadb nginx > /dev/null 2>&1
 
-# 6. Configuração do MariaDB (Acesso Externo)
+# 7. Configuração do MariaDB (Acesso Externo)
 echo -e "[+] Configurando MariaDB para acesso remoto..."
-# Busca o arquivo de configuração correto dependendo da versão do SO
 if [ -f /etc/mysql/mariadb.conf.d/50-server.cnf ]; then
     sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf
 elif [ -f /etc/mysql/my.cnf ]; then
     sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/my.cnf
 fi
 systemctl restart mariadb
-
-# Aguarda o MariaDB subir completamente antes de injetar comandos
 sleep 2
 
-# Criação Segura do Banco e Usuários
 mysql -u root <<EOF
 CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;
 CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
@@ -96,21 +114,20 @@ GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
 FLUSH PRIVILEGES;
 EOF
 
-# 7. Instalação do phpMyAdmin (Sem interrupções na tela)
+# 8. Instalação do phpMyAdmin
 echo -e "[+] Instalando phpMyAdmin..."
 echo "phpmyadmin phpmyadmin/dbconfig-install boolean false" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
 apt-get install -y -qq phpmyadmin > /dev/null
 
-# 8. Detecção robusta do Socket do PHP-FPM
+# 9. Detecção robusta do Socket do PHP-FPM
 PHP_SOCK=$(find /var/run/php/ -name "php*-fpm.sock" | head -n 1)
 if [ -z "$PHP_SOCK" ]; then
-    # Fallback caso a busca falhe
     PHP_VER=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
     PHP_SOCK="/var/run/php/php${PHP_VER}-fpm.sock"
 fi
 
-# 9. Configuração do Nginx
+# 10. Configuração do Nginx
 echo -e "[+] Configurando Web Server (Nginx)..."
 SERVER_NAME_CONF="_"
 if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
@@ -125,7 +142,6 @@ server {
     root /usr/share/phpmyadmin;
     index index.php index.html index.htm;
 
-    # Aumenta limite de upload para importar bancos grandes
     client_max_body_size 512M;
 
     location / {
@@ -145,14 +161,13 @@ server {
 }
 EOF
 
-# Ativa o site e remove conflitos
 ln -sf /etc/nginx/sites-available/astral-db /etc/nginx/sites-enabled/
 if [ "$FINAL_PORT" == "80" ]; then
     rm -f /etc/nginx/sites-enabled/default
 fi
 systemctl restart nginx
 
-# 10. Geração do SSL (Se solicitado e confirmado)
+# 11. Geração do SSL
 FINAL_URL="http://$IP_ADDR:$FINAL_PORT"
 
 if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
@@ -167,8 +182,7 @@ if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
     fi
 fi
 
-# 11. Otimização do PHP para Bancos Maiores
-# Encontra o php.ini do fpm e aumenta os limites de upload para 512M
+# 12. Otimização do PHP para Bancos Maiores
 PHP_INI=$(find /etc/php/ -name "php.ini" | grep fpm | head -n 1)
 if [ -n "$PHP_INI" ]; then
     sed -i 's/upload_max_filesize.*/upload_max_filesize = 512M/' "$PHP_INI"
@@ -176,7 +190,7 @@ if [ -n "$PHP_INI" ]; then
     systemctl restart php*-fpm > /dev/null 2>&1
 fi
 
-# 12. Tela de Sucesso Final
+# 13. Tela de Sucesso Final
 echo -e "\n${CYAN}======================================================${NC}"
 echo -e "${GREEN}   ✅ ASTRAL CLOUD - SERVIDOR PRONTO PARA USO!        ${NC}"
 echo -e "${CYAN}======================================================${NC}"
