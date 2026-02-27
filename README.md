@@ -1,4 +1,4 @@
-# 🚀 Astral Cloud - VPS Automation Scripts
+# 🚀 Astral Cloud - Instalador de Banco de Dados
 
 Bem-vindo ao repositório oficial de automação da **Astral Cloud**. Desenvolvemos estas ferramentas para transformar sua VPS em um ambiente profissional com apenas um comando. 
 
