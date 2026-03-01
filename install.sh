@@ -10,11 +10,13 @@ GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 RED='\033[1;31m'
 CYAN='\033[1;36m'
+MAGENTA='\033[1;35m'
 NC='\033[0m'
 
+# Limpa a tela e mostra o Header
 clear
 echo -e "${CYAN}======================================================${NC}"
-echo -e "${CYAN}      🚀 SETUP AUTOMÁTICO DE BANCO DE DADOS           ${NC}"
+echo -e "${CYAN}     🚀 SETUP AUTOMÁTICO DE BANCO DE DADOS & PMA      ${NC}"
 echo -e "${CYAN}======================================================${NC}\n"
 
 # 1. Verificação de Root
@@ -26,25 +28,74 @@ fi
 # Pega o IP da máquina
 IP_ADDR=$(curl -s -4 ifconfig.me)
 
-# 2. Coleta de Dados Inteligente
-echo -e "${YELLOW}➤ Passo 1: Configuração de Acesso${NC}"
+# 2. Menu Interativo Aprimorado
+echo -e "${YELLOW}➤ O que você deseja fazer no servidor?${NC}\n"
+echo -e "  ${GREEN}[1]${NC} Instalar Banco de Dados (MariaDB) + phpMyAdmin"
+echo -e "  ${GREEN}[2]${NC} Instalar APENAS phpMyAdmin (Conectar em banco externo)"
+echo -e "  ${MAGENTA}[3]${NC} 🗑️  Remover phpMyAdmin do servidor (Limpeza segura)"
+echo -e "  ${RED}[0]${NC} Sair do Script\n"
 
-# Novo: Escolha do nome do arquivo
-read -p "Nome do projeto para configuração interna (Ex: meu_projeto): " CONFIG_NAME
-if [[ -z "$CONFIG_NAME" ]]; then
-    CONFIG_NAME="meupainel"
+while true; do
+    read -p "Digite a opção desejada: " INSTALL_TYPE
+    case $INSTALL_TYPE in
+        [0-3]) break ;;
+        *) echo -e "${RED}[!] Opção inválida. Digite 0, 1, 2 ou 3.${NC}" ;;
+    esac
+done
+
+if [[ "$INSTALL_TYPE" == "0" ]]; then
+    echo -e "\n${YELLOW}Saindo... Nenhuma alteração foi feita.${NC}"
+    exit 0
 fi
-# Limpa espaços e caracteres especiais do nome do arquivo
+
+# ==========================================================================
+# LÓGICA DE REMOÇÃO (OPÇÃO 3)
+# ==========================================================================
+if [[ "$INSTALL_TYPE" == "3" ]]; then
+    echo -e "\n${CYAN}======================================================${NC}"
+    echo -e "${MAGENTA}       🗑️ INICIANDO REMOÇÃO DO PHPMYADMIN...          ${NC}"
+    echo -e "${CYAN}======================================================${NC}"
+    
+    read -p "Qual foi o 'Nome do projeto' usado na instalação? (Deixe em branco se foi 'meupainel'): " CONFIG_NAME
+    CONFIG_NAME=${CONFIG_NAME:-meupainel}
+    CONFIG_NAME=$(echo "$CONFIG_NAME" | tr -cd 'a-zA-Z0-9_-')
+
+    echo -e "[+] Purgando pacote phpmyadmin e dependências não utilizadas..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get purge -y phpmyadmin > /dev/null 2>&1
+    apt-get autoremove -y > /dev/null 2>&1
+
+    echo -e "[+] Removendo bloco de servidor do Nginx ($CONFIG_NAME)..."
+    rm -f /etc/nginx/sites-available/$CONFIG_NAME
+    rm -f /etc/nginx/sites-enabled/$CONFIG_NAME
+    
+    echo -e "[+] Reiniciando Nginx para aplicar as mudanças..."
+    systemctl restart nginx > /dev/null 2>&1
+
+    echo -e "\n${GREEN}✅ phpMyAdmin e suas configurações Nginx foram removidos!${NC}"
+    echo -e "${YELLOW}Nota:${NC} Seus bancos de dados no MariaDB permanecem intactos e seguros."
+    exit 0
+fi
+
+# ==========================================================================
+# LÓGICA DE INSTALAÇÃO (OPÇÕES 1 e 2)
+# ==========================================================================
+echo -e "\n${YELLOW}➤ Passo 1: Configuração de Acesso${NC}"
+
+read -p "Nome do projeto para configuração do Nginx (Ex: painel_db): " CONFIG_NAME
+CONFIG_NAME=${CONFIG_NAME:-meupainel}
 CONFIG_NAME=$(echo "$CONFIG_NAME" | tr -cd 'a-zA-Z0-9_-')
 
-while [[ -z "$DB_NAME" ]]; do read -p "Nome do Banco de Dados: " DB_NAME; done
-while [[ -z "$DB_USER" ]]; do read -p "Usuário do Banco: " DB_USER; done
+# Coleta dados do banco apenas se for a Opção 1
+if [[ "$INSTALL_TYPE" == "1" ]]; then
+    while [[ -z "$DB_NAME" ]]; do read -p "Nome do Banco de Dados: " DB_NAME; done
+    while [[ -z "$DB_USER" ]]; do read -p "Usuário do Banco: " DB_USER; done
 
-# Novo: Gerador Automático de Senha
-read -p "Senha do Banco (Deixe em branco para gerar automaticamente): " DB_PASS
-if [[ -z "$DB_PASS" ]]; then
-    DB_PASS=$(openssl rand -base64 12)
-    echo -e "${GREEN}[+] Senha forte gerada automaticamente!${NC}"
+    read -p "Senha do Banco (Deixe em branco para gerar automaticamente): " DB_PASS
+    if [[ -z "$DB_PASS" ]]; then
+        DB_PASS=$(openssl rand -base64 12)
+        echo -e "${GREEN}[+] Senha forte gerada automaticamente!${NC}"
+    fi
 fi
 
 echo -e "\n${YELLOW}➤ Passo 2: Configuração de Domínio e SSL${NC}"
@@ -66,7 +117,7 @@ fi
 
 echo -e "\n${GREEN}Iniciando a instalação... Sente-se e relaxe! ☕${NC}\n"
 
-# 3. Otimização de Mirrors (Brasil)
+# 4. Otimização de Mirrors (Brasil)
 echo -e "[+] Otimizando repositórios do APT (Mirrors BR)..."
 source /etc/os-release
 
@@ -86,11 +137,11 @@ elif [ "$ID" == "debian" ]; then
     fi
 fi
 
-# 4. Preparação do Sistema
+# 5. Preparação do Sistema
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
-# 5. Detecção de Porta Livre
+# 6. Detecção de Porta Livre
 check_port() {
   local port=$1
   while ss -tuln | grep -q ":$port " ; do
@@ -101,32 +152,42 @@ check_port() {
 FINAL_PORT=$(check_port 80)
 echo -e "[+] Porta selecionada para o Web Server: $FINAL_PORT"
 
-# 6. Liberação Automática de Firewall (Novo)
+# 7. Liberação Automática de Firewall
 if command -v ufw > /dev/null; then
     if ufw status | grep -q "Status: active"; then
-        echo -e "[+] Firewall UFW detectado. Liberando portas $FINAL_PORT (Web) e 3306 (MySQL)..."
+        echo -e "[+] Firewall UFW detectado. Liberando portas..."
         ufw allow $FINAL_PORT/tcp > /dev/null 2>&1
-        ufw allow 3306/tcp > /dev/null 2>&1
+        if [[ "$INSTALL_TYPE" == "1" ]]; then
+            ufw allow 3306/tcp > /dev/null 2>&1
+        fi
     fi
 fi
 
-# 7. Instalação de Pacotes Essenciais
-echo -e "[+] Instalando Nginx, MariaDB, PHP e Certbot..."
-apt-get install -y -qq mariadb-server nginx php-fpm php-mysql php-mbstring curl certbot python3-certbot-nginx > /dev/null
-
-systemctl enable mariadb nginx > /dev/null 2>&1
-
-# 8. Configuração do MariaDB (Acesso Externo)
-echo -e "[+] Configurando MariaDB para acesso remoto..."
-if [ -f /etc/mysql/mariadb.conf.d/50-server.cnf ]; then
-    sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf
-elif [ -f /etc/mysql/my.cnf ]; then
-    sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/my.cnf
+# 8. Instalação de Pacotes Essenciais
+echo -e "[+] Instalando pacotes necessários..."
+PKGS="nginx php-fpm php-mysql php-mbstring curl certbot python3-certbot-nginx"
+if [[ "$INSTALL_TYPE" == "1" ]]; then
+    PKGS="$PKGS mariadb-server"
 fi
-systemctl restart mariadb
-sleep 2
+apt-get install -y -qq $PKGS > /dev/null
 
-mysql -u root <<EOF
+systemctl enable nginx > /dev/null 2>&1
+if [[ "$INSTALL_TYPE" == "1" ]]; then
+    systemctl enable mariadb > /dev/null 2>&1
+fi
+
+# 9. Configuração do MariaDB (Apenas Opção 1)
+if [[ "$INSTALL_TYPE" == "1" ]]; then
+    echo -e "[+] Configurando MariaDB para acesso remoto..."
+    if [ -f /etc/mysql/mariadb.conf.d/50-server.cnf ]; then
+        sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf
+    elif [ -f /etc/mysql/my.cnf ]; then
+        sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/my.cnf
+    fi
+    systemctl restart mariadb
+    sleep 2
+
+    mysql -u root <<EOF
 CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;
 CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
 CREATE USER IF NOT EXISTS '$DB_USER'@'%' IDENTIFIED BY '$DB_PASS';
@@ -134,21 +195,32 @@ GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';
 GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
 FLUSH PRIVILEGES;
 EOF
+fi
 
-# 9. Instalação do phpMyAdmin
+# 10. Instalação do phpMyAdmin
 echo -e "[+] Instalando phpMyAdmin..."
 echo "phpmyadmin phpmyadmin/dbconfig-install boolean false" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
 apt-get install -y -qq phpmyadmin > /dev/null
 
-# 10. Detecção robusta do Socket do PHP-FPM
+# Permite conectar em bancos externos se for apenas PMA
+if [[ "$INSTALL_TYPE" == "2" ]]; then
+    echo -e "[+] Ativando login em servidores externos no phpMyAdmin..."
+    if [ -f /etc/phpmyadmin/config.inc.php ]; then
+        if ! grep -q "AllowArbitraryServer" /etc/phpmyadmin/config.inc.php; then
+            echo "\$cfg['AllowArbitraryServer'] = true;" >> /etc/phpmyadmin/config.inc.php
+        fi
+    fi
+fi
+
+# 11. Detecção robusta do Socket do PHP-FPM
 PHP_SOCK=$(find /var/run/php/ -name "php*-fpm.sock" | head -n 1)
 if [ -z "$PHP_SOCK" ]; then
     PHP_VER=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
     PHP_SOCK="/var/run/php/php${PHP_VER}-fpm.sock"
 fi
 
-# 11. Configuração do Nginx Customizada
+# 12. Configuração do Nginx Customizada
 echo -e "[+] Configurando Web Server (Nginx)..."
 SERVER_NAME_CONF="_"
 if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
@@ -188,7 +260,7 @@ if [ "$FINAL_PORT" == "80" ]; then
 fi
 systemctl restart nginx
 
-# 12. Geração do SSL
+# 13. Geração do SSL
 FINAL_URL="http://$IP_ADDR:$FINAL_PORT"
 
 if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
@@ -203,7 +275,7 @@ if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
     fi
 fi
 
-# 13. Otimização do PHP para Bancos Maiores
+# 14. Otimização do PHP para Bancos Maiores
 PHP_INI=$(find /etc/php/ -name "php.ini" | grep fpm | head -n 1)
 if [ -n "$PHP_INI" ]; then
     sed -i 's/upload_max_filesize.*/upload_max_filesize = 512M/' "$PHP_INI"
@@ -211,14 +283,22 @@ if [ -n "$PHP_INI" ]; then
     systemctl restart php*-fpm > /dev/null 2>&1
 fi
 
-# 14. Tela de Sucesso Final
+# 15. Tela de Sucesso Final
 echo -e "\n${CYAN}======================================================${NC}"
 echo -e "${GREEN}   ✅ SERVIDOR PRONTO PARA USO!                       ${NC}"
 echo -e "${CYAN}======================================================${NC}"
 echo -e "🌐 ${YELLOW}Acesse seu Painel:${NC} $FINAL_URL"
-echo -e "🗄️  ${YELLOW}Nome do Banco:${NC}   $DB_NAME"
-echo -e "👤 ${YELLOW}Usuário:${NC}         $DB_USER"
-echo -e "🔑 ${YELLOW}Senha:${NC}           $DB_PASS"
-echo -e "📡 ${YELLOW}Acesso Remoto:${NC}   Liberado (Porta 3306 / %)"
+
+if [[ "$INSTALL_TYPE" == "1" ]]; then
+    echo -e "🗄️  ${YELLOW}Nome do Banco:${NC}   $DB_NAME"
+    echo -e "👤 ${YELLOW}Usuário:${NC}         $DB_USER"
+    echo -e "🔑 ${YELLOW}Senha:${NC}           $DB_PASS"
+    echo -e "📡 ${YELLOW}Acesso Remoto:${NC}   Liberado (Porta 3306 / %)"
+else
+    echo -e "💡 ${YELLOW}Nota:${NC} O phpMyAdmin foi configurado para aceitar"
+    echo -e "         conexões de servidores externos. Na tela de"
+    echo -e "         login, digite o IP do banco no campo 'Servidor'."
+fi
+
 echo -e "${CYAN}======================================================${NC}"
-echo -e "💡 Guarde estes dados para conectar seus sistemas e plugins.\n"
+echo -e "💡 Guarde estes dados em um local seguro.\n"
