@@ -17,7 +17,7 @@ NC='\033[0m'
 # Limpa a tela e mostra o Header
 clear
 echo -e "${CYAN}======================================================${NC}"
-echo -e "${CYAN}     🚀 SETUP INTELIGENTE DE BANCO DE DADOS & PMA     ${NC}"
+echo -e "${CYAN}     🚀 INSTALADOR DE BANCO DE DADOS & PMA     ${NC}"
 echo -e "${CYAN}======================================================${NC}\n"
 
 # 1. Verificação de Root
@@ -33,7 +33,7 @@ IP_ADDR=$(curl -s -4 ifconfig.me)
 echo -e "${YELLOW}➤ O que você deseja fazer no servidor?${NC}\n"
 echo -e "  ${GREEN}[1]${NC} Instalar Banco de Dados (MariaDB) + phpMyAdmin"
 echo -e "  ${GREEN}[2]${NC} Instalar APENAS phpMyAdmin (Conectar em bancos externos)"
-echo -e "  ${MAGENTA}[3]${NC} 🗑️  Remover phpMyAdmin do servidor (Limpeza cirúrgica)"
+echo -e "  ${MAGENTA}[3]${NC} 🗑️  Remover phpMyAdmin do servidor"
 echo -e "  ${RED}[0]${NC} Sair do Script\n"
 
 while true; do
