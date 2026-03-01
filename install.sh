@@ -3,6 +3,7 @@
 # ==========================================================================
 # Instalador Automático de Banco de Dados & phpMyAdmin
 # Compatibilidade: Ubuntu 20.04/22.04/24.04 e Debian 11/12/13
+# Integração Nativa: Pterodactyl Panel
 # ==========================================================================
 
 # Cores e Formatação
@@ -56,25 +57,45 @@ if [[ "$INSTALL_TYPE" == "3" ]]; then
     echo -e "${MAGENTA}       🗑️ INICIANDO REMOÇÃO DO PHPMYADMIN...          ${NC}"
     echo -e "${CYAN}======================================================${NC}"
     
-    read -p "Qual foi o 'Nome do projeto' usado na instalação? (Deixe em branco se foi 'meupainel'): " CONFIG_NAME
-    CONFIG_NAME=${CONFIG_NAME:-meupainel}
-    CONFIG_NAME=$(echo "$CONFIG_NAME" | tr -cd 'a-zA-Z0-9_-')
-
     echo -e "[+] Purgando pacote phpmyadmin e dependências não utilizadas..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get purge -y phpmyadmin > /dev/null 2>&1
     apt-get autoremove -y > /dev/null 2>&1
 
-    echo -e "[+] Removendo bloco de servidor do Nginx ($CONFIG_NAME)..."
-    rm -f /etc/nginx/sites-available/$CONFIG_NAME
-    rm -f /etc/nginx/sites-enabled/$CONFIG_NAME
-    
-    echo -e "[+] Reiniciando Nginx para aplicar as mudanças..."
-    systemctl restart nginx > /dev/null 2>&1
+    # Remove link do Pterodactyl se existir
+    if [ -L "/var/www/pterodactyl/public/phpmyadmin" ]; then
+        echo -e "[+] Removendo integração com Pterodactyl Panel..."
+        rm -f /var/www/pterodactyl/public/phpmyadmin
+    fi
 
-    echo -e "\n${GREEN}✅ phpMyAdmin e suas configurações Nginx foram removidos!${NC}"
+    # Remove configurações autônomas do Nginx
+    read -p "Qual foi o 'Nome do projeto' Nginx usado na instalação? (Pule se usou o Pterodactyl ou deixe vazio para 'meupainel'): " CONFIG_NAME
+    CONFIG_NAME=${CONFIG_NAME:-meupainel}
+    CONFIG_NAME=$(echo "$CONFIG_NAME" | tr -cd 'a-zA-Z0-9_-')
+
+    if [ -f "/etc/nginx/sites-available/$CONFIG_NAME" ]; then
+        echo -e "[+] Removendo bloco de servidor do Nginx ($CONFIG_NAME)..."
+        rm -f /etc/nginx/sites-available/$CONFIG_NAME
+        rm -f /etc/nginx/sites-enabled/$CONFIG_NAME
+        systemctl restart nginx > /dev/null 2>&1
+    fi
+
+    echo -e "\n${GREEN}✅ phpMyAdmin removido com sucesso!${NC}"
     echo -e "${YELLOW}Nota:${NC} Seus bancos de dados no MariaDB permanecem intactos e seguros."
     exit 0
+fi
+
+# ==========================================================================
+# DETECÇÃO DO PTERODACTYL PANEL
+# ==========================================================================
+PTERO_INSTALLED=false
+USE_PTERO_LINK="n"
+PTERO_DOMAIN=""
+
+if [ -d "/var/www/pterodactyl/public" ] && [ -f "/etc/nginx/sites-available/pterodactyl.conf" ]; then
+    PTERO_INSTALLED=true
+    # Puxa o domínio direto do arquivo conf do Pterodactyl
+    PTERO_DOMAIN=$(grep -oP '(?<=server_name\s)[^;]+' /etc/nginx/sites-available/pterodactyl.conf | head -1 | awk '{print $1}')
 fi
 
 # ==========================================================================
@@ -82,9 +103,19 @@ fi
 # ==========================================================================
 echo -e "\n${YELLOW}➤ Passo 1: Configuração de Acesso${NC}"
 
-read -p "Nome do projeto para configuração do Nginx (Ex: painel_db): " CONFIG_NAME
-CONFIG_NAME=${CONFIG_NAME:-meupainel}
-CONFIG_NAME=$(echo "$CONFIG_NAME" | tr -cd 'a-zA-Z0-9_-')
+# Se Pterodactyl for detectado, pergunta se quer integrar
+if [ "$PTERO_INSTALLED" = true ] && [ -n "$PTERO_DOMAIN" ]; then
+    echo -e "${CYAN}👑 Pterodactyl Panel detectado no servidor!${NC}"
+    echo -e "Domínio encontrado: ${GREEN}$PTERO_DOMAIN${NC}"
+    read -p "Deseja integrar o phpMyAdmin ao painel? (Acesso via $PTERO_DOMAIN/phpmyadmin) (s/n): " USE_PTERO_LINK
+fi
+
+# Se NÃO for usar o Pterodactyl, pede os dados do Nginx padrão
+if [[ ! "$USE_PTERO_LINK" =~ ^[Ss]$ ]]; then
+    read -p "Nome do projeto para configuração do Nginx (Ex: painel_db): " CONFIG_NAME
+    CONFIG_NAME=${CONFIG_NAME:-meupainel}
+    CONFIG_NAME=$(echo "$CONFIG_NAME" | tr -cd 'a-zA-Z0-9_-')
+fi
 
 # Coleta dados do banco apenas se for a Opção 1
 if [[ "$INSTALL_TYPE" == "1" ]]; then
@@ -98,87 +129,54 @@ if [[ "$INSTALL_TYPE" == "1" ]]; then
     fi
 fi
 
-echo -e "\n${YELLOW}➤ Passo 2: Configuração de Domínio e SSL${NC}"
-echo -e "Você deseja usar um domínio personalizado com SSL/HTTPS? (s/n)"
-read -r USE_SSL
+# Pede SSL apenas se NÃO estiver integrando ao Pterodactyl (Ptero já tem SSL nativo)
+if [[ ! "$USE_PTERO_LINK" =~ ^[Ss]$ ]]; then
+    echo -e "\n${YELLOW}➤ Passo 2: Configuração de Domínio e SSL${NC}"
+    echo -e "Você deseja usar um domínio personalizado com SSL/HTTPS? (s/n)"
+    read -r USE_SSL
 
-if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
-    read -p "Digite o domínio (ex: db.seudominio.com): " DOMAIN
-    echo -e "\n${RED}⚠️ ATENÇÃO IMPORTANTÍSSIMA ⚠️${NC}"
-    echo -e "Para o SSL funcionar, o domínio ${CYAN}$DOMAIN${NC} DEVE estar apontado"
-    echo -e "para o IP desta VPS: ${GREEN}$IP_ADDR${NC} (via Cloudflare ou Registro.br)."
-    read -p "Você já fez esse apontamento e esperou propagar? (s/n): " DNS_OK
-    
-    if [[ ! "$DNS_OK" =~ ^[Ss]$ ]]; then
-        echo -e "${YELLOW}Instalação de SSL cancelada. O painel será acessado via IP.${NC}"
-        USE_SSL="n"
+    if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
+        read -p "Digite o domínio (ex: db.seudominio.com): " DOMAIN
+        echo -e "\n${RED}⚠️ ATENÇÃO IMPORTANTÍSSIMA ⚠️${NC}"
+        echo -e "Para o SSL funcionar, o domínio ${CYAN}$DOMAIN${NC} DEVE estar apontado para o IP: ${GREEN}$IP_ADDR${NC}."
+        read -p "Você já fez esse apontamento e esperou propagar? (s/n): " DNS_OK
+        
+        if [[ ! "$DNS_OK" =~ ^[Ss]$ ]]; then
+            echo -e "${YELLOW}Instalação de SSL cancelada. O painel será acessado via IP.${NC}"
+            USE_SSL="n"
+        fi
     fi
 fi
 
 echo -e "\n${GREEN}Iniciando a instalação... Sente-se e relaxe! ☕${NC}\n"
 
 # 4. Otimização de Mirrors (Brasil)
-echo -e "[+] Otimizando repositórios do APT (Mirrors BR)..."
-source /etc/os-release
-
-if [ "$ID" == "ubuntu" ]; then
-    if [ -f /etc/apt/sources.list ]; then
-        sed -i -E 's|http://([a-z]{2}\.)?archive\.ubuntu\.com/ubuntu/?|http://br.archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list
-    fi
-    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-        sed -i -E 's|URIs: http://([a-z]{2}\.)?archive\.ubuntu\.com/ubuntu/?|URIs: http://br.archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
-    fi
-elif [ "$ID" == "debian" ]; then
-    if [ -f /etc/apt/sources.list ]; then
-        sed -i -E 's|http://([a-z]{2}\.)?deb\.debian\.org/debian/?|http://ftp.br.debian.org/debian/|g' /etc/apt/sources.list
-    fi
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then
-        sed -i -E 's|URIs: http://([a-z]{2}\.)?deb\.debian\.org/debian/?|URIs: http://ftp.br.debian.org/debian/|g' /etc/apt/sources.list.d/debian.sources
-    fi
-fi
-
-# 5. Preparação do Sistema
+echo -e "[+] Otimizando repositórios do APT..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
-# 6. Detecção de Porta Livre
-check_port() {
-  local port=$1
-  while ss -tuln | grep -q ":$port " ; do
-    port=$((port+1))
-  done
-  echo $port
-}
-FINAL_PORT=$(check_port 80)
-echo -e "[+] Porta selecionada para o Web Server: $FINAL_PORT"
+# 5. Instalação de Pacotes Essenciais
+echo -e "[+] Instalando pacotes base e dependências..."
+PKGS="nginx php-mysql php-mbstring curl"
 
-# 7. Liberação Automática de Firewall
-if command -v ufw > /dev/null; then
-    if ufw status | grep -q "Status: active"; then
-        echo -e "[+] Firewall UFW detectado. Liberando portas..."
-        ufw allow $FINAL_PORT/tcp > /dev/null 2>&1
-        if [[ "$INSTALL_TYPE" == "1" ]]; then
-            ufw allow 3306/tcp > /dev/null 2>&1
-        fi
-    fi
+if [[ ! "$USE_PTERO_LINK" =~ ^[Ss]$ ]]; then
+    # Certbot e FPM só são estritamente gerenciados pelo script se rodar standalone
+    PKGS="$PKGS php-fpm certbot python3-certbot-nginx"
 fi
 
-# 8. Instalação de Pacotes Essenciais
-echo -e "[+] Instalando pacotes necessários..."
-PKGS="nginx php-fpm php-mysql php-mbstring curl certbot python3-certbot-nginx"
 if [[ "$INSTALL_TYPE" == "1" ]]; then
     PKGS="$PKGS mariadb-server"
 fi
+
 apt-get install -y -qq $PKGS > /dev/null
 
-systemctl enable nginx > /dev/null 2>&1
 if [[ "$INSTALL_TYPE" == "1" ]]; then
     systemctl enable mariadb > /dev/null 2>&1
 fi
 
-# 9. Configuração do MariaDB (Apenas Opção 1)
+# 6. Configuração do MariaDB (Apenas Opção 1)
 if [[ "$INSTALL_TYPE" == "1" ]]; then
-    echo -e "[+] Configurando MariaDB para acesso remoto..."
+    echo -e "[+] Configurando MariaDB..."
     if [ -f /etc/mysql/mariadb.conf.d/50-server.cnf ]; then
         sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mariadb.conf.d/50-server.cnf
     elif [ -f /etc/mysql/my.cnf ]; then
@@ -197,13 +195,12 @@ FLUSH PRIVILEGES;
 EOF
 fi
 
-# 10. Instalação do phpMyAdmin
+# 7. Instalação do phpMyAdmin
 echo -e "[+] Instalando phpMyAdmin..."
 echo "phpmyadmin phpmyadmin/dbconfig-install boolean false" | debconf-set-selections
 echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect none" | debconf-set-selections
 apt-get install -y -qq phpmyadmin > /dev/null
 
-# Permite conectar em bancos externos se for apenas PMA
 if [[ "$INSTALL_TYPE" == "2" ]]; then
     echo -e "[+] Ativando login em servidores externos no phpMyAdmin..."
     if [ -f /etc/phpmyadmin/config.inc.php ]; then
@@ -213,77 +210,89 @@ if [[ "$INSTALL_TYPE" == "2" ]]; then
     fi
 fi
 
-# 11. Detecção robusta do Socket do PHP-FPM
-PHP_SOCK=$(find /var/run/php/ -name "php*-fpm.sock" | head -n 1)
-if [ -z "$PHP_SOCK" ]; then
-    PHP_VER=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
-    PHP_SOCK="/var/run/php/php${PHP_VER}-fpm.sock"
-fi
+# 8. Integração Nginx / Pterodactyl
+if [[ "$USE_PTERO_LINK" =~ ^[Ss]$ ]]; then
+    echo -e "[+] Criando Link Simbólico com o Pterodactyl Panel..."
+    ln -sf /usr/share/phpmyadmin /var/www/pterodactyl/public/phpmyadmin
+    
+    # Dá permissão para o webserver ler se necessário
+    chown -R www-data:www-data /usr/share/phpmyadmin
+    
+    FINAL_URL="https://$PTERO_DOMAIN/phpmyadmin"
 
-# 12. Configuração do Nginx Customizada
-echo -e "[+] Configurando Web Server (Nginx)..."
-SERVER_NAME_CONF="_"
-if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
-    SERVER_NAME_CONF="$DOMAIN"
-fi
+else
+    # MODO STANDALONE (Sem Pterodactyl)
+    echo -e "[+] Configurando Web Server Standalone (Nginx)..."
+    
+    check_port() {
+      local port=$1
+      while ss -tuln | grep -q ":$port " ; do
+        port=$((port+1))
+      done
+      echo $port
+    }
+    FINAL_PORT=$(check_port 80)
+    echo -e "[+] Porta selecionada: $FINAL_PORT"
 
-cat <<EOF > /etc/nginx/sites-available/$CONFIG_NAME
+    if command -v ufw > /dev/null; then
+        if ufw status | grep -q "Status: active"; then
+            ufw allow $FINAL_PORT/tcp > /dev/null 2>&1
+            if [[ "$INSTALL_TYPE" == "1" ]]; then
+                ufw allow 3306/tcp > /dev/null 2>&1
+            fi
+        fi
+    fi
+
+    PHP_SOCK=$(find /var/run/php/ -name "php*-fpm.sock" | head -n 1)
+    if [ -z "$PHP_SOCK" ]; then
+        PHP_VER=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;")
+        PHP_SOCK="/var/run/php/php${PHP_VER}-fpm.sock"
+    fi
+
+    SERVER_NAME_CONF="_"
+    if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
+        SERVER_NAME_CONF="$DOMAIN"
+    fi
+
+    cat <<EOF > /etc/nginx/sites-available/$CONFIG_NAME
 server {
     listen $FINAL_PORT;
     server_name $SERVER_NAME_CONF;
-
     root /usr/share/phpmyadmin;
     index index.php index.html index.htm;
-
     client_max_body_size 512M;
 
     location / {
         try_files \$uri \$uri/ /index.php;
     }
-
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:$PHP_SOCK;
         fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
         include fastcgi_params;
     }
-
     location ~ /\.ht {
         deny all;
     }
 }
 EOF
 
-ln -sf /etc/nginx/sites-available/$CONFIG_NAME /etc/nginx/sites-enabled/
-if [ "$FINAL_PORT" == "80" ]; then
-    rm -f /etc/nginx/sites-enabled/default
-fi
-systemctl restart nginx
+    ln -sf /etc/nginx/sites-available/$CONFIG_NAME /etc/nginx/sites-enabled/
+    if [ "$FINAL_PORT" == "80" ]; then rm -f /etc/nginx/sites-enabled/default; fi
+    systemctl restart nginx
 
-# 13. Geração do SSL
-FINAL_URL="http://$IP_ADDR:$FINAL_PORT"
-
-if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
-    echo -e "[+] Gerando certificado SSL para $DOMAIN..."
-    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email > /dev/null 2>&1; then
-        FINAL_URL="https://$DOMAIN"
-        echo -e "${GREEN}[+] SSL gerado com sucesso!${NC}"
-    else
-        echo -e "${RED}[!] Falha ao gerar o SSL. Verifique se o DNS ($DOMAIN) aponta para $IP_ADDR.${NC}"
-        echo -e "${YELLOW}[!] O painel continuará acessível via HTTP.${NC}"
-        FINAL_URL="http://$DOMAIN:$FINAL_PORT"
+    FINAL_URL="http://$IP_ADDR:$FINAL_PORT"
+    if [[ "$USE_SSL" =~ ^[Ss]$ ]]; then
+        echo -e "[+] Gerando certificado SSL..."
+        if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email > /dev/null 2>&1; then
+            FINAL_URL="https://$DOMAIN"
+        else
+            FINAL_URL="http://$DOMAIN:$FINAL_PORT"
+        fi
     fi
 fi
 
-# 14. Otimização do PHP para Bancos Maiores
-PHP_INI=$(find /etc/php/ -name "php.ini" | grep fpm | head -n 1)
-if [ -n "$PHP_INI" ]; then
-    sed -i 's/upload_max_filesize.*/upload_max_filesize = 512M/' "$PHP_INI"
-    sed -i 's/post_max_size.*/post_max_size = 512M/' "$PHP_INI"
-    systemctl restart php*-fpm > /dev/null 2>&1
-fi
-
-# 15. Tela de Sucesso Final
+# 9. Tela de Sucesso Final
 echo -e "\n${CYAN}======================================================${NC}"
 echo -e "${GREEN}   ✅ SERVIDOR PRONTO PARA USO!                       ${NC}"
 echo -e "${CYAN}======================================================${NC}"
@@ -295,9 +304,7 @@ if [[ "$INSTALL_TYPE" == "1" ]]; then
     echo -e "🔑 ${YELLOW}Senha:${NC}           $DB_PASS"
     echo -e "📡 ${YELLOW}Acesso Remoto:${NC}   Liberado (Porta 3306 / %)"
 else
-    echo -e "💡 ${YELLOW}Nota:${NC} O phpMyAdmin foi configurado para aceitar"
-    echo -e "         conexões de servidores externos. Na tela de"
-    echo -e "         login, digite o IP do banco no campo 'Servidor'."
+    echo -e "💡 ${YELLOW}Nota:${NC} Digite o IP do banco externo no campo 'Servidor'."
 fi
 
 echo -e "${CYAN}======================================================${NC}"
